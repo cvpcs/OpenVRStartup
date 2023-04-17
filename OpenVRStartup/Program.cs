@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Valve.VR;
@@ -23,11 +24,11 @@ namespace OpenVRStartup
         static void Main(string[] _)
         {
             // Window setup
-            Console.Title = Properties.Resources.AppName;
+            Console.Title = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyTitleAttribute>().Title;
 
             // Starting worker
             var t = new Thread(Worker);
-            LogUtils.WriteLineToCache($"Application starting ({Properties.Resources.Version})");
+            LogUtils.WriteLineToCache($"Application starting ({Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>().InformationalVersion})");
             if (!t.IsAlive) t.Start();
             else LogUtils.WriteLineToCache("Error: Could not start worker thread");
 
