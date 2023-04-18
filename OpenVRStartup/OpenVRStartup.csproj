@@ -7,6 +7,7 @@
     <TargetFramework>net6.0</TargetFramework>
 	<LangVersion>latest</LangVersion>
     <ApplicationIcon>resources\logo.ico</ApplicationIcon>
+	<PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
   <PropertyGroup>
 	<AssemblyTitle>$(AssemblyName)</AssemblyTitle>
@@ -20,5 +21,11 @@
     <PackageReference Include="Serilog.Extensions.Logging" Version="3.1.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="4.1.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="5.0.0" />
+    <PackageReference Include="unofficial-flayan-openvr.redist" Version="1.0.9" IncludeAssets="none" GeneratePathProperty="true" />
+    <PackageReference Include="Unofficial.OpenVR" Version="1.1.0" />
+  </ItemGroup>
+  <ItemGroup>
+	<None Update="app.vrmanifest" CopyToOutputDirectory="Always" />
+	<None Include="$(Pkgunofficial-flayan-openvr_redist)\build\native\bin\x64\dynamic\openvr_api.dll" CopyToOutputDirectory="Always" />
   </ItemGroup>
 </Project>
