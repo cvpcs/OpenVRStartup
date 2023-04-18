@@ -38,19 +38,15 @@ namespace OpenVRStartup
 
             // Starting worker
             var cancel = new CancellationTokenSource();
-            var worker = Task.Run(() => SpinWait.SpinUntil(() => InitVR()), cancel.Token)
-                .ContinueWith(_ => { if (WeHaveScripts(PATH_STARTFOLDER)) RunScripts(PATH_STARTFOLDER); })
-                .ContinueWith(_ => { if (WeHaveScripts(PATH_STOPFOLDER)) WaitForQuit(cancel.Token); })
-                .ContinueWith(_ => { if (WeHaveScripts(PATH_STOPFOLDER)) RunScripts(PATH_STOPFOLDER); })
+            var worker = Task.Run(() => SpinWait.SpinUntil(() => InitVR() || cancel.IsCancellationRequested))
+                .ContinueWith(_ => { if (!cancel.IsCancellationRequested && WeHaveScripts(PATH_STARTFOLDER)) RunScripts(PATH_STARTFOLDER); })
+                .ContinueWith(_ => { if (!cancel.IsCancellationRequested && WeHaveScripts(PATH_STOPFOLDER)) WaitForQuit(cancel); })
+                .ContinueWith(_ => { if (!cancel.IsCancellationRequested && WeHaveScripts(PATH_STOPFOLDER)) RunScripts(PATH_STOPFOLDER); })
                 .ContinueWith(_ => OpenVR.Shutdown());
 
             Minimize();
 
-            SpinWait.SpinUntil(() => Console.KeyAvailable);
-            cancel.Cancel();
             worker.Wait();
-
-            OpenVR.Shutdown();
         }
 
         private static void Minimize() {
@@ -114,7 +110,7 @@ namespace OpenVRStartup
             }
         }
 
-        private static void WaitForQuit(CancellationToken token)
+        private static void WaitForQuit(CancellationTokenSource token)
         {
             logger.LogInformation("This window remains to wait for the shutdown of SteamVR to run additional scripts on exit.");
             while(!token.IsCancellationRequested)
@@ -143,6 +139,7 @@ namespace OpenVRStartup
                     }
                 }
                 Task.Delay(1000);
+                if (Console.KeyAvailable) token.Cancel();
             }
         }
 
