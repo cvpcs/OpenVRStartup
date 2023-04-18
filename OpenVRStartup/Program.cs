@@ -1,6 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
 using Serilog;
-using Serilog.Core;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -8,6 +7,7 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using Valve.VR;
 
 namespace OpenVRStartup
@@ -34,17 +34,21 @@ namespace OpenVRStartup
             // Window setup
             Console.Title = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyTitleAttribute>().Title;
 
-            // Starting worker
-            var t = new Thread(Worker);
             logger.LogInformation($"Application starting ({Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>().InformationalVersion})");
-            if (!t.IsAlive) t.Start();
-            else logger.LogError("Error: Could not start worker thread");
 
-            _isReady = true;
+            // Starting worker
+            var cancel = new CancellationTokenSource();
+            var worker = Task.Run(() => SpinWait.SpinUntil(() => InitVR()), cancel.Token)
+                .ContinueWith(_ => { if (WeHaveScripts(PATH_STARTFOLDER)) RunScripts(PATH_STARTFOLDER); })
+                .ContinueWith(_ => { if (WeHaveScripts(PATH_STOPFOLDER)) WaitForQuit(cancel.Token); })
+                .ContinueWith(_ => { if (WeHaveScripts(PATH_STOPFOLDER)) RunScripts(PATH_STOPFOLDER); })
+                .ContinueWith(_ => OpenVR.Shutdown());
+
             Minimize();
 
-            Console.ReadLine();
-            t.Abort();
+            SpinWait.SpinUntil(() => Console.KeyAvailable);
+            cancel.Cancel();
+            worker.Wait();
 
             OpenVR.Shutdown();
         }
@@ -52,36 +56,6 @@ namespace OpenVRStartup
         private static void Minimize() {
             IntPtr winHandle = Process.GetCurrentProcess().MainWindowHandle;
             ShowWindow(winHandle, SW_SHOWMINIMIZED);
-        }
-
-        private static bool _isConnected = false;
-
-        private static void Worker()
-        {
-            var shouldRun = true;
-
-            Thread.CurrentThread.IsBackground = true;
-            while (shouldRun)
-            {
-                if (!_isConnected)
-                {
-                    Thread.Sleep(1000);
-                    _isConnected = InitVR();
-                }
-                else if(_isReady)
-                {
-                    RunScripts(PATH_STARTFOLDER);
-                    if(WeHaveScripts(PATH_STOPFOLDER)) WaitForQuit();
-                    OpenVR.Shutdown();
-                    RunScripts(PATH_STOPFOLDER);
-                    shouldRun = false;
-                }
-                if (!shouldRun)
-                {
-                    logger.LogInformation("Application exiting");
-                    Environment.Exit(0);
-                }
-            }
         }
         
         // Initializing connection to OpenVR
@@ -140,11 +114,10 @@ namespace OpenVRStartup
             }
         }
 
-        private static void WaitForQuit()
+        private static void WaitForQuit(CancellationToken token)
         {
             logger.LogInformation("This window remains to wait for the shutdown of SteamVR to run additional scripts on exit.");
-            var shouldRun = true;
-            while(shouldRun)
+            while(!token.IsCancellationRequested)
             {
                 var vrEvents = new List<VREvent_t>();
                 var vrEvent = new VREvent_t();
@@ -166,17 +139,14 @@ namespace OpenVRStartup
                     if ((EVREventType)e.eventType == EVREventType.VREvent_Quit)
                     {
                         OpenVR.System.AcknowledgeQuit_Exiting();
-                        shouldRun = false;
+                        return;
                     }
                 }
-                Thread.Sleep(1000);
+                Task.Delay(1000);
             }
         }
 
         private static bool WeHaveScripts(string folder)
-        {
-            if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
-            return Directory.GetFiles(folder, FILE_PATTERN).Length > 0;
-        }
+            => Directory.Exists(folder) && Directory.GetFiles(folder, FILE_PATTERN).Length > 0;
     }
 }
