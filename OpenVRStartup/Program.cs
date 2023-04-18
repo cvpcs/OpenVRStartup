@@ -1,4 +1,7 @@
-﻿using System;
+﻿using Microsoft.Extensions.Logging;
+using Serilog;
+using Serilog.Core;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -11,7 +14,12 @@ namespace OpenVRStartup
 {
     class Program
     {
-        static readonly string PATH_LOGFILE = "./OpenVRStartup.log";
+        static readonly ILogger<Program> logger = LoggerFactory.Create(builder =>
+            builder.AddSerilog(new LoggerConfiguration()
+                .WriteTo.Console(outputTemplate: "{Timestamp:HH:mm:ss} {Level:u3} {Message}{NewLine}{Exception}")
+                .WriteTo.File(outputTemplate: "{Timestamp:HH:mm:ss} {Level:u3} {Message}{NewLine}{Exception}", path: $"{Path.GetFileNameWithoutExtension(Assembly.GetEntryAssembly().Location)}.log")
+                .CreateLogger())).CreateLogger<Program>();
+
         static readonly string PATH_STARTFOLDER = "./start/";
         static readonly string PATH_STOPFOLDER = "./stop/";
         static readonly string FILE_PATTERN = "*.cmd";
@@ -28,29 +36,12 @@ namespace OpenVRStartup
 
             // Starting worker
             var t = new Thread(Worker);
-            LogUtils.WriteLineToCache($"Application starting ({Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>().InformationalVersion})");
+            logger.LogInformation($"Application starting ({Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>().InformationalVersion})");
             if (!t.IsAlive) t.Start();
-            else LogUtils.WriteLineToCache("Error: Could not start worker thread");
+            else logger.LogError("Error: Could not start worker thread");
 
-            // Check if first run, if so do NOT minimize but write instructions.
-            if (LogUtils.LogFileExists(PATH_LOGFILE))
-            {
-                _isReady = true;
-                Minimize();
-            }
-            else {
-                Utils.PrintInfo("\n========================");
-                Utils.PrintInfo(" First Run Instructions ");
-                Utils.PrintInfo("========================");
-                Utils.Print("\nThis app automatically sets itself to auto-launch with SteamVR.");
-                Utils.Print($"\nWhen it runs it will in turn run all {FILE_PATTERN} files in the {PATH_STARTFOLDER} folder.");
-                Utils.Print($"\nIf there are {FILE_PATTERN} files in {PATH_STOPFOLDER} it will stay and run those on shutdown.");
-                Utils.Print("\nThis message is only shown once, to see it again delete the log file.");
-                Utils.Print("\nPress [Enter] in this window to continue execution.\nIf there are shutdown scripts the window will remain in the task bar.");
-                Console.ReadLine();
-                Minimize();
-                _isReady = true;
-            }
+            _isReady = true;
+            Minimize();
 
             Console.ReadLine();
             t.Abort();
@@ -87,8 +78,7 @@ namespace OpenVRStartup
                 }
                 if (!shouldRun)
                 {
-                    LogUtils.WriteLineToCache("Application exiting, writing log");
-                    LogUtils.WriteCacheToLogFile(PATH_LOGFILE, 100);
+                    logger.LogInformation("Application exiting");
                     Environment.Exit(0);
                 }
             }
@@ -101,24 +91,24 @@ namespace OpenVRStartup
             OpenVR.Init(ref error, EVRApplicationType.VRApplication_Overlay);
             if (error != EVRInitError.None)
             {
-                LogUtils.WriteLineToCache($"Error: OpenVR init failed: {Enum.GetName(typeof(EVRInitError), error)}");
+                logger.LogError($"OpenVR init failed: {Enum.GetName(typeof(EVRInitError), error)}");
                 return false;
             }
             else
             {
-                LogUtils.WriteLineToCache("OpenVR init success");
+                logger.LogInformation("OpenVR init success");
 
                 // Add app manifest and set auto-launch
                 var appKey = "boll7708.openvrstartup";
                 if (!OpenVR.Applications.IsApplicationInstalled(appKey))
                 {
                     var manifestError = OpenVR.Applications.AddApplicationManifest(Path.GetFullPath("./app.vrmanifest"), false);
-                    if (manifestError == EVRApplicationError.None) LogUtils.WriteLineToCache("Successfully installed app manifest");
-                    else LogUtils.WriteLineToCache($"Error: Failed to add app manifest: {Enum.GetName(typeof(EVRApplicationError), manifestError)}");
+                    if (manifestError == EVRApplicationError.None) logger.LogInformation("Successfully installed app manifest");
+                    else logger.LogError($"Failed to add app manifest: {Enum.GetName(typeof(EVRApplicationError), manifestError)}");
                     
                     var autolaunchError = OpenVR.Applications.SetApplicationAutoLaunch(appKey, true);
-                    if (autolaunchError == EVRApplicationError.None) LogUtils.WriteLineToCache("Successfully set app to auto launch");
-                    else LogUtils.WriteLineToCache($"Error: Failed to turn on auto launch: {Enum.GetName(typeof(EVRApplicationError), autolaunchError)}");
+                    if (autolaunchError == EVRApplicationError.None) logger.LogInformation("Successfully set app to auto launch");
+                    else logger.LogError($"Failed to turn on auto launch: {Enum.GetName(typeof(EVRApplicationError), autolaunchError)}");
                 }
                 return true;
             }
@@ -130,10 +120,10 @@ namespace OpenVRStartup
             {
                 if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
                 var files = Directory.GetFiles(folder, FILE_PATTERN);
-                LogUtils.WriteLineToCache($"Found: {files.Length} script(s) in {folder}");
+                logger.LogInformation($"Found: {files.Length} script(s) in {folder}");
                 foreach (var file in files)
                 {
-                    LogUtils.WriteLineToCache($"Executing: {file}");
+                    logger.LogInformation($"Executing: {file}");
                     var path = Path.Combine(Environment.CurrentDirectory, file);
                     Process p = new Process();
                     p.StartInfo.CreateNoWindow = true;
@@ -142,17 +132,17 @@ namespace OpenVRStartup
                     p.StartInfo.Arguments = $"/C \"{path}\"";
                     p.Start();
                 }
-                if (files.Length == 0) LogUtils.WriteLineToCache($"Did not find any {FILE_PATTERN} files to execute in {folder}");
+                if (files.Length == 0) logger.LogWarning($"Did not find any {FILE_PATTERN} files to execute in {folder}");
             }
             catch (Exception e)
             {
-                LogUtils.WriteLineToCache($"Error: Could not load scripts from {folder}: {e.Message}");
+                logger.LogError($"Could not load scripts from {folder}: {e.Message}");
             }
         }
 
         private static void WaitForQuit()
         {
-            Utils.Print("This window remains to wait for the shutdown of SteamVR to run additional scripts on exit.");
+            logger.LogInformation("This window remains to wait for the shutdown of SteamVR to run additional scripts on exit.");
             var shouldRun = true;
             while(shouldRun)
             {
@@ -168,7 +158,7 @@ namespace OpenVRStartup
                 }
                 catch (Exception e)
                 {
-                    Utils.PrintError($"Could not get new events: {e.Message}");
+                    logger.LogError($"Could not get new events: {e.Message}");
                 }
 
                 foreach (var e in vrEvents)
